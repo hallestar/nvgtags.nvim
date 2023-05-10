@@ -18,9 +18,9 @@ local Path = require "plenary.path"
 local filter = vim.tbl_filter
 local flatten = vim.tbl_flatten
 
-local line_no_width = 6
+local line_no_width = 8
 
-local global_result_grep_pattern = "(%w+)%s+(%d+)%s+(.-)%s+(.+)"
+local definition_pattern = "(%w+)%s+(%d+)%s+(.-)%s+(.+)"
 
 local gtags_conf
 local gtags_default_conf = {
@@ -53,6 +53,28 @@ local gtags_default_conf = {
   }
 }
 
+
+local escape_chars = function(string)
+  return string.gsub(string, "[%(|%)|\\|%[|%]|%-|%{%}|%?|%+|%*|%^|%$|%.]", {
+    ["\\"] = "\\\\",
+    ["-"] = "\\-",
+    ["("] = "\\(",
+    [")"] = "\\)",
+    ["["] = "\\[",
+    ["]"] = "\\]",
+    ["{"] = "\\{",
+    ["}"] = "\\}",
+    ["?"] = "\\?",
+    ["+"] = "\\+",
+    ["*"] = "\\*",
+    ["^"] = "\\^",
+    ["$"] = "\\$",
+    ["."] = "\\.",
+  })
+end
+
+
+-- as a extension of telescope, we need a setup step
 local my_setup = function(ext_config, config)
   log.debug("[INFO] nvgtags starting")
 
@@ -68,6 +90,8 @@ local my_setup = function(ext_config, config)
   end
 end
 
+
+-- get_open_filelist
 local get_open_filelist = function(grep_open_files, cwd)
   if not grep_open_files then
     return nil
@@ -91,6 +115,8 @@ local get_open_filelist = function(grep_open_files, cwd)
   return filelist
 end
 
+
+-- create entry_maker for telescope finder
 local create_definition_entry_maker = function(opts)
   opts = opts or { line_no_width = line_no_width }
   opts.line_no_width = opts.line_no_width or line_no_width
@@ -122,7 +148,7 @@ local create_definition_entry_maker = function(opts)
 
     local value = {}
 
-    value.name, value.line, value.filename, value.func_prev = string.match(entry, global_result_grep_pattern)
+    value.name, value.line, value.filename, value.func_prev = string.match(entry, definition_pattern)
     local ordinal = value.name .. value.line
     value.lnum = tonumber(value.line)
 
@@ -136,20 +162,26 @@ local create_definition_entry_maker = function(opts)
   end
 end
 
+
+-- use gnu global to find references
 local find_reference = function(opts)
 
 end
 
+
+-- use gnu global to find completion of words
 local find_completion = function(opts)
 
 end
 
 
+-- use gnu global to find token of files
 local find_document = function(opts)
 
 end
 
 
+-- use gnu global to find definitions
 local find_definition = function(opts)
   opts = opts or { buf = 'cur' }
 
@@ -190,10 +222,70 @@ local find_definition = function(opts)
   }):find()
 end
 
+
+-- use gnu global to find definitions of text under cursor
+local find_definition_under_cursor = function(opts)
+  -- get word under cursor
+  -- copy from telescope.builtin
+  opts.cwd = opts.cwd and vim.fn.expand(opts.cwd) or vim.loop.cwd()
+  local word
+  local visual = vim.fn.mode() == "v"
+
+  if visual == true then
+    local saved_reg = vim.fn.getreg "v"
+    vim.cmd [[noautocmd sil norm "vy]]
+    local sele = vim.fn.getreg "v"
+    vim.fn.setreg("v", saved_reg)
+    word = vim.F.if_nil(opts.search, sele)
+  else
+    word = vim.F.if_nil(opts.search, vim.fn.expand "<cword>")
+  end
+  local search = opts.use_regex and word or escape_chars(word)
+
+  log.debug('find_definition_under_cursor search: ' .. search)
+
+  local additional_args = {}
+  if opts.additional_args ~= nil then
+    if type(opts.additional_args) == "function" then
+      additional_args = opts.additional_args(opts)
+    elseif type(opts.additional_args) == "table" then
+      additional_args = opts.additional_args
+    end
+  end
+
+  local args
+  if visual == true then
+    args = flatten {
+      gtags_conf.global,
+      gtags_conf.args.definition,
+      search,
+    }
+  else
+    args = flatten {
+      gtags_conf.global,
+      gtags_conf.args.definition,
+      opts.word_match,
+      search,
+    }
+  end
+
+  opts.entry_maker = create_definition_entry_maker(opts)
+  pickers
+    .new(opts, {
+      prompt_title = "Find Word (" .. word:gsub("\n", "\\n") .. ")",
+      finder = finders.new_oneshot_job(args, opts),
+      previewer = conf.qflist_previewer(opts),
+      sorter = conf.generic_sorter(opts),
+    })
+    :find()
+end
+
+
 return require("telescope").register_extension({
   setup = my_setup,
   exports = {
     find_definition = find_definition,
+    find_definition_under_cursor = find_definition_under_cursor,
     find_reference = find_reference,
     find_document = find_document,
     find_completion = find_completion,
