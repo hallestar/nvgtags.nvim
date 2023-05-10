@@ -1,0 +1,3 @@
+
+local nvgtags = {}
+return nvgtags
