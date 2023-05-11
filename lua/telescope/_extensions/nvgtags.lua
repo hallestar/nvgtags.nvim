@@ -20,7 +20,8 @@ local flatten = vim.tbl_flatten
 
 local line_no_width = 8
 
-local definition_pattern = "(%w+)%s+(%d+)%s+(.-)%s+(.+)"
+-- local gnu_global_result_pattern = "(%w+)%s+(%d+)%s+(.-)%s+(.+)"
+local gnu_global_result_pattern = "(%w+)%s+(%d+)%s+([^%s]+)%s*(.*)"
 
 local gtags_conf
 local gtags_default_conf = {
@@ -40,7 +41,7 @@ local gtags_default_conf = {
     reference = {
       "--encode-path",
       " ",
-      "--xra",
+      "-xra",
     },
     completion = {
       "-cT",
@@ -117,7 +118,7 @@ end
 
 
 -- create entry_maker for telescope finder
-local create_definition_entry_maker = function(opts)
+local create_entry_maker = function(opts)
   opts = opts or { line_no_width = line_no_width }
   opts.line_no_width = opts.line_no_width or line_no_width
 
@@ -143,12 +144,18 @@ local create_definition_entry_maker = function(opts)
 
   return function(entry)
     if entry == '' then
+      log.debug('entry is empty')
       return nil
     end
 
     local value = {}
 
-    value.name, value.line, value.filename, value.func_prev = string.match(entry, definition_pattern)
+    value.name, value.line, value.filename, value.func_prev = string.match(entry, gnu_global_result_pattern)
+    -- log.debug('entry: ', entry)
+    -- log.debug('name: ', value.name)
+    -- log.debug('line: ', value.line)
+    -- log.debug('filename: ', value.filename)
+    -- log.debug('func_prev: ', value.func_prev)
     local ordinal = value.name .. value.line
     value.lnum = tonumber(value.line)
 
@@ -165,7 +172,38 @@ end
 
 -- use gnu global to find references
 local find_reference = function(opts)
+  log.debug('find_reference')
+  opts = opts or { buf = 'cur' }
+  opts.cwd = opts.cwd and vim.fn.expand(opts.cwd) or vim.loop.cwd()
+  opts.max_results = 50
 
+  -- find reference
+  local reference_arguments = {
+    gtags_conf.global,
+    gtags_conf.args.reference,
+  }
+
+  local args = flatten { reference_arguments }
+  local cmd_generator = function(prompt)
+    if not prompt or prompt == "" then
+      return nil
+    end
+
+    log.debug('find_reference prompt: ' .. prompt .. ' args: ' ..  string.format("%s", args))
+    log.debug('test traceback ' ..  debug.traceback())
+
+    return flatten { args, prompt }
+  end
+
+  opts.entry_maker = create_entry_maker(opts)
+  local live_finder = finders.new_job(cmd_generator, opts.entry_maker, opts.max_results, opts.cwd)
+
+  pickers.new(opts, {
+    prompt_title = 'Find Reference',
+    finder = live_finder,
+    sorter = conf.generic_sorter(opts),
+    previewer = conf.qflist_previewer(opts),
+  }):find()
 end
 
 
@@ -184,17 +222,11 @@ end
 -- use gnu global to find definitions
 local find_definition = function(opts)
   opts = opts or { buf = 'cur' }
-
   opts.cwd = opts.cwd and vim.fn.expand(opts.cwd) or vim.loop.cwd()
   opts.max_results = 50
-  local cmd = {}
 
-  opts.entry_maker = create_definition_entry_maker(opts)
+  opts.entry_maker = create_entry_maker(opts)
   opts.bufnr = vim.fn.bufnr()
-
-  for _, v in ipairs(gtags_conf.global) do
-    table.insert(cmd, v)
-  end
 
   -- find definition
   local definition_arguments = {
@@ -203,7 +235,7 @@ local find_definition = function(opts)
   }
 
   local args = flatten { definition_arguments }
-  local cmd_genrator = function(prompt)
+  local cmd_generator = function(prompt)
     if not prompt or prompt == "" then
       return nil
     end
@@ -212,10 +244,10 @@ local find_definition = function(opts)
   end
 
   local entry_maker = opts.entry_maker or make_entry.gen_from_vimgrep(opts)
-  local live_finder = finders.new_job(cmd_genrator, entry_maker, opts.max_results, opts.cwd)
+  local live_finder = finders.new_job(cmd_generator, entry_maker, opts.max_results, opts.cwd)
 
   pickers.new(opts, {
-    prompt_title = 'nvgtags',
+    prompt_title = 'Find Definition',
     finder = live_finder,
     sorter = conf.generic_sorter(opts),
     previewer = conf.qflist_previewer(opts),
@@ -269,10 +301,10 @@ local find_definition_under_cursor = function(opts)
     }
   end
 
-  opts.entry_maker = create_definition_entry_maker(opts)
+  opts.entry_maker = create_entry_maker(opts)
   pickers
     .new(opts, {
-      prompt_title = "Find Word (" .. word:gsub("\n", "\\n") .. ")",
+      prompt_title = "Find Definition (" .. word:gsub("\n", "\\n") .. ")",
       finder = finders.new_oneshot_job(args, opts),
       previewer = conf.qflist_previewer(opts),
       sorter = conf.generic_sorter(opts),
