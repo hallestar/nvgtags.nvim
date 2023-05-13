@@ -136,7 +136,7 @@ local create_entry_maker = function(opts)
   local make_display = function(entry)
     local display_columns = {
       { '[' .. entry.value.line .. ']', 'TelescopeResultsComment' },
-      { entry.value.filename, 'TelescopeResultsNormal' },
+      { entry.value.filename,           'TelescopeResultsNormal' },
     }
 
     return displayer(display_columns)
@@ -189,8 +189,8 @@ local find_reference = function(opts)
       return nil
     end
 
-    log.debug('find_reference prompt: ' .. prompt .. ' args: ' ..  string.format("%s", args))
-    log.debug('test traceback ' ..  debug.traceback())
+    log.debug('find_reference prompt: ' .. prompt .. ' args: ' .. string.format("%s", args))
+    log.debug('test traceback ' .. debug.traceback())
 
     return flatten { args, prompt }
   end
@@ -204,6 +204,53 @@ local find_reference = function(opts)
     sorter = conf.generic_sorter(opts),
     previewer = conf.qflist_previewer(opts),
   }):find()
+end
+
+local find_reference_under_cursor = function(opts)
+  -- get word under cursor
+  -- copy from telescope.builtin
+  opts.cwd = opts.cwd and vim.fn.expand(opts.cwd) or vim.loop.cwd()
+  local word
+  local visual = vim.fn.mode() == "v"
+
+  if visual == true then
+    local saved_reg = vim.fn.getreg "v"
+    vim.cmd [[noautocmd sil norm "vy]]
+    local sele = vim.fn.getreg "v"
+    vim.fn.setreg("v", saved_reg)
+    word = vim.F.if_nil(opts.search, sele)
+  else
+    word = vim.F.if_nil(opts.search, vim.fn.expand "<cword>")
+  end
+  local search = opts.use_regex and word or escape_chars(word)
+
+  log.debug('find_reference_under_cursor search: ' .. search)
+
+  local args
+  if visual == true then
+    args = flatten {
+      gtags_conf.global,
+      gtags_conf.args.reference,
+      search,
+    }
+  else
+    args = flatten {
+      gtags_conf.global,
+      gtags_conf.args.reference,
+      opts.word_match,
+      search,
+    }
+  end
+
+  opts.entry_maker = create_entry_maker(opts)
+  pickers
+      .new(opts, {
+        prompt_title = "Find Reference (" .. word:gsub("\n", "\\n") .. ")",
+        finder = finders.new_oneshot_job(args, opts),
+        previewer = conf.qflist_previewer(opts),
+        sorter = conf.generic_sorter(opts),
+      })
+      :find()
 end
 
 
@@ -276,15 +323,6 @@ local find_definition_under_cursor = function(opts)
 
   log.debug('find_definition_under_cursor search: ' .. search)
 
-  local additional_args = {}
-  if opts.additional_args ~= nil then
-    if type(opts.additional_args) == "function" then
-      additional_args = opts.additional_args(opts)
-    elseif type(opts.additional_args) == "table" then
-      additional_args = opts.additional_args
-    end
-  end
-
   local args
   if visual == true then
     args = flatten {
@@ -303,13 +341,13 @@ local find_definition_under_cursor = function(opts)
 
   opts.entry_maker = create_entry_maker(opts)
   pickers
-    .new(opts, {
-      prompt_title = "Find Definition (" .. word:gsub("\n", "\\n") .. ")",
-      finder = finders.new_oneshot_job(args, opts),
-      previewer = conf.qflist_previewer(opts),
-      sorter = conf.generic_sorter(opts),
-    })
-    :find()
+      .new(opts, {
+        prompt_title = "Find Definition (" .. word:gsub("\n", "\\n") .. ")",
+        finder = finders.new_oneshot_job(args, opts),
+        previewer = conf.qflist_previewer(opts),
+        sorter = conf.generic_sorter(opts),
+      })
+      :find()
 end
 
 
@@ -319,8 +357,8 @@ return require("telescope").register_extension({
     find_definition = find_definition,
     find_definition_under_cursor = find_definition_under_cursor,
     find_reference = find_reference,
+    find_reference_under_cursor = find_reference_under_cursor,
     find_document = find_document,
     find_completion = find_completion,
   },
 })
-
