@@ -1,4 +1,4 @@
-# ngtags
+# nvtags
 A extension for elescope integrate with gun global.
 
 ## Prequirements
