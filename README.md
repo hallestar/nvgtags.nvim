@@ -1,5 +1,5 @@
 # nvtags
-A extension for elescope integrate with gun global.
+A extension for elescope integrates gnu global.
 
 ## Prequirements
 
